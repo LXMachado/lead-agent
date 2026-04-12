@@ -1,0 +1,30 @@
+{
+  "database_path": "data/leads.db",
+  "user_agent": "Mozilla/5.0 (compatible; LeadAgent/0.1; +local)",
+  "request_timeout_seconds": 12,
+  "max_search_results_per_query": 8,
+  "max_pages_per_run": 30,
+  "niches": [
+    {
+      "name": "Tradies",
+      "queries": [
+        "plumber gold coast contact",
+        "electrician brisbane business email",
+        "roof plumber sunshine coast"
+      ],
+      "keywords": ["plumber", "electrical", "roof", "emergency", "maintenance"],
+      "locations": ["gold coast", "brisbane", "sunshine coast", "tweed heads"],
+      "excluded_domains": ["yellowpages.com.au", "truelocal.com.au"]
+    },
+    {
+      "name": "Legal",
+      "queries": [
+        "family lawyer gold coast",
+        "migration lawyer brisbane"
+      ],
+      "keywords": ["lawyer", "legal", "solicitor", "law firm"],
+      "locations": ["gold coast", "brisbane"],
+      "excluded_domains": ["lawyers.com.au"]
+    }
+  ]
+}

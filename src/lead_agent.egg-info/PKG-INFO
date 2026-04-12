@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: lead-agent
+Version: 0.1.0
+Summary: Local lead scraping and qualification agent
+Requires-Python: >=3.10
