@@ -194,6 +194,32 @@ def _call_openai(api_key: str, model: str, prompt: dict[str, object], timeout_se
     return _extract_openai_text_output(payload)
 
 
+def _call_openrouter(api_key: str, model: str, prompt: dict[str, object], timeout_seconds: int) -> str:
+    endpoint = "https://openrouter.ai/api/v1/chat/completions"
+    body = {
+        "model": model,
+        "messages": [{"role": "user", "content": json.dumps(prompt, ensure_ascii=True)}],
+    }
+
+    req = Request(
+        endpoint,
+        data=json.dumps(body).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://github.com/LXMachado/lead-agent",
+            "X-Title": "Lead Agent",
+        },
+        method="POST",
+    )
+
+    with urlopen(req, timeout=timeout_seconds) as response:
+        raw = response.read().decode("utf-8", errors="ignore")
+
+    payload = json.loads(raw)
+    return _extract_venice_text_output(payload)
+
+
 def _call_venice(api_key: str, model: str, prompt: dict[str, object], timeout_seconds: int) -> str:
     endpoint = "https://api.venice.ai/api/v1/chat/completions"
     body = {
@@ -230,6 +256,8 @@ def qualify_with_model(
 
     if provider == "venice":
         text = _call_venice(api_key, model, prompt, timeout_seconds)
+    elif provider == "openrouter":
+        text = _call_openrouter(api_key, model, prompt, timeout_seconds)
     else:
         text = _call_openai(api_key, model, prompt, timeout_seconds)
 
