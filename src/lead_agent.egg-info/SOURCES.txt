@@ -3,6 +3,7 @@ pyproject.toml
 src/lead_agent/__init__.py
 src/lead_agent/cli.py
 src/lead_agent/config.py
+src/lead_agent/dashboard.py
 src/lead_agent/db.py
 src/lead_agent/discovery.py
 src/lead_agent/env.py
