@@ -12,19 +12,9 @@
         "electrician brisbane business email",
         "roof plumber sunshine coast"
       ],
-      "keywords": ["plumber", "electrical", "roof", "emergency", "maintenance"],
+      "keywords": ["plumber", "roof", "emergency", "maintenance"],
       "locations": ["gold coast", "brisbane", "sunshine coast", "tweed heads"],
       "excluded_domains": ["yellowpages.com.au", "truelocal.com.au"]
-    },
-    {
-      "name": "Legal",
-      "queries": [
-        "family lawyer gold coast",
-        "migration lawyer brisbane"
-      ],
-      "keywords": ["lawyer", "legal", "solicitor", "law firm"],
-      "locations": ["gold coast", "brisbane"],
-      "excluded_domains": ["lawyers.com.au"]
     }
   ]
 }
