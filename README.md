@@ -1,48 +1,63 @@
 # Lead Agent
 
-Local-first lead generation pipeline and dashboard for discovering businesses, extracting contact signals, qualifying opportunities, and tracking every run with auditable history in SQLite.
+This project explores how AI-assisted workflows and orchestration systems can automate repetitive research and operational tasks using structured multi-step processes.
 
 ![Lead Agent Dashboard](assets/lead-agent-dash.png)
 
-## Why This Project Exists
-Prospecting tools are often expensive, opaque, and difficult to customize. Lead Agent is built to solve that by giving you:
-- Full control over your lead criteria and scoring logic
-- A local, inspectable data pipeline (no black box vendor lock-in)
-- Fast iteration on niche queries, qualification policy, and outreach prioritization
+## Why This Exists
+Many lead and research tools are expensive, rigid, or hard to inspect. Lead Agent is a local-first alternative for testing and operating practical automation workflows.
+
+It is designed to help with:
+- repeatable lead research
+- transparent qualification logic
+- auditable operational runs
+- quick iteration on niche-specific workflows
+
+## Workflow Diagram
+```mermaid
+flowchart LR
+  A[CLI or Dashboard Action] --> B[Load Config + Environment]
+  B --> C[Discover Candidate Websites]
+  C --> D[Scrape and Extract Signals]
+  D --> E[Qualify with Rules]
+  E --> F{Use Model?}
+  F -->|Yes| G[Model Scoring Override]
+  F -->|No| H[Keep Heuristic Score]
+  G --> I[Upsert Lead in SQLite]
+  H --> I
+  I --> J[Append Source + Qualification History]
+  J --> K[Stats and Dashboard Views]
+```
+
+Pipeline summary:
+`CLI/Dashboard -> Discovery -> Scrape -> Qualification -> SQLite -> Dashboard`
+
+## Practical Use Cases
+- Lead qualification for outbound prospecting
+- Research automation for niche market mapping
+- Internal reporting on discovered vs qualified opportunities
+- Workflow routing by score band (`Hot`, `Warm`, `Cold`, `Unscored`)
+- CRM enrichment preparation from website signals
+- Operational dashboards for local review and reruns
 
 ## What It Does
-- Discovers candidate businesses from niche-specific search queries
-- Scrapes website metadata and contact signals (email, phone, content context)
-- Qualifies each lead into `Hot`, `Warm`, `Cold`, or `Unscored`
-- Optionally uses an LLM scorer (OpenAI/OpenRouter/Venice-compatible)
-- Persists canonical lead state plus append-only source and qualification history
-- Exposes a local dashboard for filtering, discovery runs, and requalification actions
+- Discovers candidate businesses from niche query sets
+- Extracts website metadata and contact signals (email, phone, content)
+- Scores and bands each lead with deterministic rules
+- Optionally applies model-based scoring through API-compatible providers
+- Stores canonical lead state plus append-only history in SQLite
+- Runs from CLI and a local dashboard
 
-## Architecture At A Glance
-`CLI -> Discovery -> Scrape/Extract -> Heuristic + Optional Model Scoring -> SQLite -> Dashboard`
-
+## Technical Overview
 Core modules:
-- `src/lead_agent/cli.py`: command surface and orchestration entrypoints
-- `src/lead_agent/pipeline.py`: single-query run execution and metrics aggregation
-- `src/lead_agent/discovery.py`: web discovery source integration
-- `src/lead_agent/scrape.py`: fetch + page signal extraction
-- `src/lead_agent/qualify.py`: deterministic qualification logic
-- `src/lead_agent/model.py`: model-based scoring adapters with fallback
-- `src/lead_agent/db.py`: schema, upserts, run telemetry, qualification history
-- `src/lead_agent/dashboard.py`: local UI and action endpoints
-
-## Engineering Highlights
-- Local-first design: all core data in SQLite for portability and ownership
-- Auditability: append-only `lead_sources` and `lead_qualifications`
-- Safe operations: no destructive delete flow in pipeline or dashboard actions
-- Practical resilience: model scoring gracefully falls back to heuristics on errors
-- Operational UX: discovery/requalify can run from both CLI and web dashboard
-
-## Tech Stack
-- Python 3.10+
-- SQLite
-- HTML parsing + HTTP scraping pipeline
-- Optional LLM providers via API-compatible adapters
+- `src/lead_agent/cli.py`: command entrypoints
+- `src/lead_agent/pipeline.py`: run orchestration
+- `src/lead_agent/discovery.py`: website discovery
+- `src/lead_agent/scrape.py`: fetch and signal extraction
+- `src/lead_agent/qualify.py`: rule-based scoring
+- `src/lead_agent/model.py`: optional model scoring adapters
+- `src/lead_agent/db.py`: schema, upserts, history, run telemetry
+- `src/lead_agent/dashboard.py`: local web interface and actions
 
 ## Quick Start
 ```bash
@@ -52,74 +67,65 @@ pip install -e .
 cp .env.example .env
 ```
 
-## Run It
-Initialize the database:
+## Terminal Examples
+Initialize DB:
 ```bash
 PYTHONPATH=src ./.venv/bin/python -m lead_agent.cli init-db --db data/leads.db
 ```
 
-Import leads from CSV:
+Import CSV:
 ```bash
 PYTHONPATH=src ./.venv/bin/python -m lead_agent.cli import-csv <path-to-csv> --db data/leads.db
 ```
 
-Run discovery once:
+Run one discovery cycle:
 ```bash
 PYTHONPATH=src ./.venv/bin/python -m lead_agent.cli run --config config/niches.example.json
 ```
 
-Requalify unscored leads:
+Requalify leads:
 ```bash
 PYTHONPATH=src ./.venv/bin/python -m lead_agent.cli requalify --db data/leads.db --config config/niches.example.json
 ```
 
-Launch dashboard:
+Start dashboard:
 ```bash
 PYTHONPATH=src ./.venv/bin/python -m lead_agent.cli ui --db data/leads.db --config config/niches.example.json --host 127.0.0.1 --port 1617
 ```
-Open `http://127.0.0.1:1617`.
 
-## Dashboard Capabilities
-- KPI cards: total leads + band distribution
-- Filters: niche, band, free-text query, row limits
-- Actions: `Run Discovery`, `Requalify Unscored`, optional `Use model`
-- Leads table with qualification and freshness fields
-- Recent runs table with operational metrics and errors
+Open: `http://127.0.0.1:1617`
 
-## Data Model
-Main tables:
-- `leads`: canonical current lead state
-- `lead_sources`: append-only source lineage
-- `lead_qualifications`: append-only score/band snapshots
-- `scrape_runs`: per-query telemetry and error counts
+## Current Limitations
+This project is experimental and currently focused on orchestration logic and workflow design rather than production deployment.
+
+Known constraints:
+- Discovery depends on third-party search/page availability
+- Some sites block scraping or hide contact data
+- Model output reliability varies by provider and prompt shape
+- No formal automated test suite yet
+- Run behavior can vary significantly by network environment
+
+## What I Learned
+- Prompt reliability is strongly tied to strict output validation
+- Orchestration complexity grows quickly once retries, fallbacks, and history are added
+- Structured processing is more reliable than free-form agent behavior for repeatable tasks
+- API and provider differences require defensive adapters and clear failure paths
+- Operational bottlenecks usually appear in discovery quality and scrape success rates
+
+## Tech Stack
+- Python 3.10+
+- SQLite
+- HTTP + HTML parsing
+- Optional model providers (`openai`, `venice`, `openrouter`)
 
 ## Environment Variables
-- `OPENAI_API_KEY`: default model key
-- `LEAD_AGENT_MODEL_API_KEY`: preferred model key override
-- `LEAD_AGENT_USE_MODEL`: `true/false`
-- `LEAD_AGENT_MODEL`: model ID
-- `LEAD_AGENT_MODEL_PROVIDER`: `openai`, `venice`, or `openrouter`
-- `LEAD_AGENT_MODEL_TIMEOUT_SECONDS`: request timeout
-- `LEAD_AGENT_DOTENV_PATH`: default dotenv path
-
-## Suggested Demo Script (For Interviews)
-1. Import a small CSV and show `stats` before/after.
-2. Run one discovery cycle and explain telemetry (`discovered`, `processed`, `errors`).
-3. Requalify unscored leads with and without model mode.
-4. Open dashboard and filter by niche/band to show prioritization workflow.
-5. Explain append-only audit history and why it matters for trust/debugging.
-
-## Project Scope And Limitations
-- Discovery quality depends on third-party search/page availability.
-- Some websites block scraping or hide contact signals.
-- LLM output may vary by provider/model quality.
-- No automated test suite yet (recommended next step).
-
-## Roadmap (High-Value Next Steps)
-- Add unit tests for normalization, scoring thresholds, and DB upsert behavior
-- Add retries/backoff + richer scrape error categorization
-- Add export actions (`Hot/Warm` segments) for outreach workflows
-- Add confidence scoring and duplicate clustering by domain/entity similarity
+- `OPENAI_API_KEY`
+- `LEAD_AGENT_MODEL_API_KEY`
+- `LEAD_AGENT_USE_MODEL`
+- `LEAD_AGENT_MODEL`
+- `LEAD_AGENT_MODEL_PROVIDER`
+- `LEAD_AGENT_MODEL_TIMEOUT_SECONDS`
+- `LEAD_AGENT_DOTENV_PATH`
 
 ## License
 Add your preferred open-source or private license in this repository.
