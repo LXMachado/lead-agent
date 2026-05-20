@@ -127,6 +127,50 @@ def _run_action(command: list[str], timeout_seconds: int = 7200) -> tuple[bool, 
     return False, output or f"Action failed with exit code {completed.returncode}."
 
 
+def _lead_detail(selected: sqlite3.Row | None) -> str:
+    if not selected:
+        return (
+            '<div class="detail-empty">Select a lead from the table to view details.</div>'
+        )
+
+    band = selected["qualification_band"] or "Unscored"
+    website = selected["website"] or ""
+    website_html = (
+        f'<a href="{_esc(website)}" target="_blank" rel="noreferrer">{_esc(website)}</a>'
+        if website
+        else "-"
+    )
+
+    return (
+        '<div class="detail-grid">'
+        f'<div class="dk">Name</div><div>{_esc(selected["name"]) or "-"}</div>'
+        f'<div class="dk">Niche</div><div>{_esc(selected["niche"]) or "-"}</div>'
+        f'<div class="dk">Area</div><div>{_esc(selected["area"]) or "-"}</div>'
+        f'<div class="dk">Website</div><div>{website_html}</div>'
+        f'<div class="dk">Email</div><div>{_esc(selected["email"]) or "-"}</div>'
+        f'<div class="dk">Phone</div><div>{_esc(selected["phone"]) or "-"}</div>'
+        f'<div class="dk">Score</div><div>{_esc(selected["qualification_score"]) or "-"}</div>'
+        f'<div class="dk">Band</div><div><span class="badge {_badge_class(selected["qualification_band"])}">{_esc(band)}</span></div>'
+        f'<div class="dk">Quality</div><div>{_esc(selected["website_quality"]) or "-"}</div>'
+        f'<div class="dk">Updated</div><div>{_esc(selected["updated_at"]) or "-"}</div>'
+        "</div>"
+    )
+
+
+def _build_query(*, niche: str, band: str, search: str, limit: int, selected_id: int | None) -> str:
+    params: dict[str, str] = {}
+    if niche:
+        params["niche"] = niche
+    if band:
+        params["band"] = band
+    if search:
+        params["q"] = search
+    params["limit"] = str(limit)
+    if selected_id is not None:
+        params["lead"] = str(selected_id)
+    return urllib.parse.urlencode(params)
+
+
 def _render_html(
     *,
     db_path: str,
@@ -136,6 +180,7 @@ def _render_html(
     band: str,
     search: str,
     limit: int,
+    selected_id: int | None,
     message: str,
     message_ok: bool,
 ) -> str:
@@ -145,28 +190,49 @@ def _render_html(
     rows = _fetch_leads(conn, niche=niche, band=band, search=search, limit=limit)
     runs = _fetch_recent_runs(conn)
 
+    selected: sqlite3.Row | None = None
+    if rows:
+        if selected_id is not None:
+            for row in rows:
+                if int(row["id"]) == selected_id:
+                    selected = row
+                    break
+        if selected is None:
+            selected = rows[0]
+
+    query_base = _build_query(
+        niche=niche,
+        band=band,
+        search=search,
+        limit=limit,
+        selected_id=int(selected["id"]) if selected else None,
+    )
+
     options_niche = ['<option value="">All Niches</option>']
     for n in niches:
-        selected = " selected" if n == niche else ""
-        options_niche.append(f"<option value=\"{_esc(n)}\"{selected}>{_esc(n)}</option>")
+        selected_opt = " selected" if n == niche else ""
+        options_niche.append(f"<option value=\"{_esc(n)}\"{selected_opt}>{_esc(n)}</option>")
 
     bands = ["", "Hot", "Warm", "Cold", "Unscored"]
     options_band = []
     for b in bands:
         label = "All Bands" if not b else b
-        selected = " selected" if b == band else ""
-        options_band.append(f"<option value=\"{_esc(b)}\"{selected}>{_esc(label)}</option>")
+        selected_opt = " selected" if b == band else ""
+        options_band.append(f"<option value=\"{_esc(b)}\"{selected_opt}>{_esc(label)}</option>")
 
     lead_rows = []
     for r in rows:
         band_val = r["qualification_band"]
         band_display = band_val if band_val else "Unscored"
+        rid = int(r["id"])
+        sel = " selected-row" if selected and rid == int(selected["id"]) else ""
+        q = _build_query(niche=niche, band=band, search=search, limit=limit, selected_id=rid)
         lead_rows.append(
-            "<tr>"
-            f"<td>{_esc(r['name'])}</td>"
+            f'<tr class="{sel.strip()}">'
+            f'<td><a href="/?{_esc(q)}">{_esc(r["name"])}</a></td>'
             f"<td>{_esc(r['niche'])}</td>"
             f"<td>{_esc(r['area'])}</td>"
-            f"<td><a href=\"{_esc(r['website'])}\" target=\"_blank\">{_esc(r['website'])}</a></td>"
+            f'<td><a href="{_esc(r["website"])}" target="_blank" rel="noreferrer">{_esc(r["website"])}</a></td>'
             f"<td>{_esc(r['email'])}</td>"
             f"<td>{_esc(r['phone'])}</td>"
             f"<td>{_esc(r['qualification_score'])}</td>"
@@ -207,117 +273,205 @@ def _render_html(
   <title>Lead Agent Dashboard</title>
   <style>
     :root {{
-      --bg: #f3f5f7;
-      --card: #ffffff;
-      --text: #17212b;
-      --muted: #607080;
-      --line: #d9e1e7;
-      --accent: #0d6efd;
-      --good: #198754;
-      --warn: #fd7e14;
-      --bad: #dc3545;
+      --bg: #f6f8fb;
+      --surface: #ffffff;
+      --panel: #eef4fa;
+      --text: #152238;
+      --muted: #66758a;
+      --line: #d6e1ee;
+      --brand: #1f6fff;
+      --brand-2: #0f58dd;
+      --shadow: 0 8px 24px rgba(19, 35, 72, 0.06);
+      --radius: 14px;
     }}
     * {{ box-sizing: border-box; }}
-    body {{ margin: 0; background: linear-gradient(180deg,#eef3f7 0%, #f8fafb 100%); color: var(--text); font-family: "Avenir Next", "Segoe UI", sans-serif; }}
-    .wrap {{ max-width: 1280px; margin: 0 auto; padding: 20px; }}
-    .top {{ display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }}
-    h1 {{ font-size: 28px; margin: 0; letter-spacing: .2px; }}
-    .muted {{ color: var(--muted); font-size: 13px; }}
-    .cards {{ display: grid; grid-template-columns: repeat(5,minmax(120px,1fr)); gap: 10px; margin: 14px 0; }}
-    .card {{ background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }}
-    .card .k {{ font-size: 24px; font-weight: 700; }}
-    .card .l {{ font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }}
-    .panel {{ background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }}
-    .grid {{ display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }}
+    body {{ margin: 0; background: radial-gradient(circle at top left, #f2f6fb 0%, #f8fbfe 55%, #f3f7fc 100%); color: var(--text); font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif; }}
+    .wrap {{ max-width: 1480px; margin: 0 auto; padding: 18px; }}
+    .layout {{ display: grid; grid-template-columns: 230px 1fr 460px; gap: 18px; align-items: start; }}
+    .intro, .hero, .aside, .section, .cta {{ background: var(--panel); border: 1px solid #e5edf7; border-radius: 18px; }}
+    .intro {{ padding: 24px 20px; min-height: 480px; }}
+    .logo {{ width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; background: #fff; border: 1px solid var(--line); font-size: 22px; }}
+    .intro h2 {{ margin: 16px 0 12px; font-size: 40px; line-height: 1.05; letter-spacing: -.4px; }}
+    .intro p {{ margin: 0; font-size: 16px; line-height: 1.45; color: #2a3950; max-width: 190px; }}
+
+    .hero {{ padding: 12px; }}
+    .hero-head {{ background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; box-shadow: var(--shadow); }}
+    .topline {{ display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; flex-wrap: wrap; }}
+    h1 {{ margin: 0; font-size: 36px; letter-spacing: -.45px; line-height: 1.08; }}
+    .tiny {{ color: var(--muted); font-size: 12px; }}
+    .cards {{ display: grid; grid-template-columns: repeat(5, minmax(90px, 1fr)); gap: 8px; margin-top: 12px; }}
+    .card {{ background: #f8fbff; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; }}
+    .card .k {{ font-size: 30px; line-height: 1; font-weight: 800; letter-spacing: -.2px; }}
+    .card .l {{ font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .7px; margin-top: 3px; }}
+
+    .msg {{ border-radius: 10px; padding: 10px; margin-top: 10px; border: 1px solid var(--line); background: #fff; }}
+    .msg-ok {{ border-color: #b7e4c7; background: #f1fff5; }}
+    .msg-err {{ border-color: #f5c2c7; background: #fff5f6; }}
+    pre {{ margin: 0; white-space: pre-wrap; font-size: 12px; }}
+
+    .search-row {{ display: grid; grid-template-columns: 1fr auto; gap: 10px; margin-top: 10px; align-items: stretch; }}
+    .panel {{ background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; box-shadow: var(--shadow); }}
     .filters, .actions {{ display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }}
-    input, select, button {{ border-radius: 8px; border: 1px solid var(--line); padding: 8px 10px; font-size: 14px; background: #fff; }}
-    button.primary {{ background: var(--accent); color: #fff; border-color: var(--accent); }}
+    input, select, button {{ border-radius: 9px; border: 1px solid var(--line); padding: 8px 10px; font-size: 12px; background: #fff; color: var(--text); }}
+    button {{ cursor: pointer; }}
+    button.primary {{ background: linear-gradient(180deg, var(--brand) 0%, var(--brand-2) 100%); color: #fff; border-color: #2d70e8; font-weight: 700; }}
     button.secondary {{ background: #fff; }}
-    table {{ width: 100%; border-collapse: collapse; font-size: 13px; }}
-    th, td {{ border-bottom: 1px solid #edf1f5; text-align: left; padding: 8px 6px; vertical-align: top; }}
-    th {{ color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }}
-    a {{ color: #0a58ca; text-decoration: none; }}
-    .badge {{ display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 600; }}
+
+    .table-panel {{ background: #fff; border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); margin-top: 10px; overflow: hidden; }}
+    .panel-title {{ padding: 10px 12px; border-bottom: 1px solid #edf2f8; color: var(--muted); font-size: 12px; }}
+    .table-wrap {{ overflow-x: auto; }}
+    table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+    th, td {{ border-bottom: 1px solid #edf2f8; text-align: left; padding: 7px 8px; vertical-align: top; }}
+    th {{ color: var(--muted); font-weight: 700; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }}
+    a {{ color: #1159ce; text-decoration: none; }}
+    tr.selected-row {{ background: #f0f6ff; }}
+    .badge {{ display: inline-block; border-radius: 999px; padding: 2px 8px; font-size: 11px; font-weight: 700; }}
     .b-hot {{ background: #d1f2df; color: #0f5132; }}
     .b-warm {{ background: #ffe5c2; color: #7a4100; }}
     .b-cold {{ background: #dbeafe; color: #1d4ed8; }}
     .b-unscored {{ background: #e9ecef; color: #495057; }}
-    .msg {{ border-radius: 10px; padding: 10px; margin-bottom: 12px; border: 1px solid var(--line); background: #fff; }}
-    .msg-ok {{ border-color: #b7e4c7; background: #f1fff5; }}
-    .msg-err {{ border-color: #f5c2c7; background: #fff5f6; }}
-    pre {{ margin: 0; white-space: pre-wrap; font-size: 12px; }}
-    .tiny {{ font-size: 12px; color: var(--muted); }}
-    @media (max-width: 1000px) {{
-      .grid {{ grid-template-columns: 1fr; }}
-      .cards {{ grid-template-columns: repeat(2,minmax(120px,1fr)); }}
+
+    .aside {{ padding: 30px 28px; min-height: 480px; }}
+    .aside h3 {{ margin: 2px 0 12px; font-size: 40px; line-height: 1.08; letter-spacing: -.4px; max-width: 340px; }}
+    .aside p {{ margin: 0; color: #2a3950; font-size: 16px; line-height: 1.48; max-width: 330px; }}
+
+    .section-grid {{ margin-top: 18px; display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; }}
+    .section {{ padding: 16px; }}
+    .section h4 {{ margin: 6px 0 8px; font-size: 34px; line-height: 1.1; letter-spacing: -.35px; }}
+    .section p {{ margin: 0 0 10px; font-size: 16px; line-height: 1.45; color: #2a3950; max-width: 360px; }}
+    .detail-card {{ background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: var(--shadow); }}
+    .detail-grid {{ display: grid; grid-template-columns: 110px 1fr; gap: 8px 10px; font-size: 13px; }}
+    .dk {{ font-weight: 700; color: #516179; text-transform: uppercase; letter-spacing: .3px; font-size: 11px; }}
+    .detail-empty {{ font-size: 13px; color: var(--muted); }}
+
+    .cta {{ margin-top: 18px; padding: 30px 28px; display: flex; align-items: center; justify-content: center; gap: 30px; flex-wrap: wrap; text-align: center; }}
+    .cta h5 {{ margin: 0 0 6px; font-size: 38px; line-height: 1.1; letter-spacing: -.3px; }}
+    .cta p {{ margin: 0; color: #2a3950; font-size: 15px; line-height: 1.45; }}
+    .cta .run {{ padding: 14px 22px; border-radius: 12px; font-size: 30px; min-width: 220px; }}
+
+    @media (max-width: 1360px) {{
+      .layout {{ grid-template-columns: 1fr; }}
+      .intro, .aside {{ min-height: 0; }}
+      .section-grid {{ grid-template-columns: 1fr; }}
+      h1 {{ font-size: 28px; }}
+      .intro h2, .aside h3, .section h4, .cta h5 {{ font-size: 30px; }}
     }}
   </style>
 </head>
 <body>
   <div class=\"wrap\">
-    <div class=\"top\">
+    <div class=\"layout\">
+      <aside class=\"intro\">
+        <div class=\"logo\">🎯</div>
+        <h2>Lead Agent Dashboard</h2>
+        <p>Monitor discovered leads, spot what is qualified, and keep your outreach pipeline active with structured workflows.</p>
+      </aside>
+
+      <section class=\"hero\">
+        <div class=\"hero-head\">
+          <div class=\"topline\">
+            <div>
+              <h1>Lead Agent Dashboard</h1>
+              <div class=\"tiny\">{_esc(db_path)} · refreshed {now}</div>
+            </div>
+            <div class=\"tiny\">No delete actions in UI.</div>
+          </div>
+
+          <div class=\"cards\">
+            <div class=\"card\"><div class=\"k\">{stats['total']}</div><div class=\"l\">Total</div></div>
+            <div class=\"card\"><div class=\"k\">{stats['hot']}</div><div class=\"l\">Hot</div></div>
+            <div class=\"card\"><div class=\"k\">{stats['warm']}</div><div class=\"l\">Warm</div></div>
+            <div class=\"card\"><div class=\"k\">{stats['cold']}</div><div class=\"l\">Cold</div></div>
+            <div class=\"card\"><div class=\"k\">{stats['unscored']}</div><div class=\"l\">Unscored</div></div>
+          </div>
+
+          {message_block}
+
+          <div class=\"search-row\">
+            <div class=\"panel\">
+              <form method=\"get\" class=\"filters\">
+                <select name=\"niche\">{''.join(options_niche)}</select>
+                <select name=\"band\">{''.join(options_band)}</select>
+                <input name=\"q\" value=\"{_esc(search)}\" placeholder=\"Search name, website, email, phone\" />
+                <input name=\"limit\" type=\"number\" min=\"10\" max=\"500\" value=\"{limit}\" />
+                <button class=\"secondary\" type=\"submit\">Filter</button>
+              </form>
+            </div>
+            <div class=\"panel\">
+              <form method=\"post\" action=\"/action\" class=\"actions\">
+                <input type=\"hidden\" name=\"config\" value=\"{_esc(config_path)}\" />
+                <input type=\"hidden\" name=\"db\" value=\"{_esc(db_path)}\" />
+                <input type=\"hidden\" name=\"dotenv\" value=\"{_esc(dotenv_path)}\" />
+                <input type=\"hidden\" name=\"return_q\" value=\"{_esc(query_base)}\" />
+                <label><input type=\"checkbox\" name=\"use_model\" value=\"1\" /> Use model</label>
+                <button class=\"primary\" type=\"submit\" name=\"kind\" value=\"run\">Run Discovery</button>
+                <button class=\"secondary\" type=\"submit\" name=\"kind\" value=\"requalify\">Requalify Unscored</button>
+              </form>
+            </div>
+          </div>
+
+          <div class=\"table-panel\">
+            <div class=\"panel-title\">Leads ({len(rows)} shown)</div>
+            <div class=\"table-wrap\">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th><th>Niche</th><th>Area</th><th>Website</th><th>Email</th><th>Phone</th>
+                    <th>Score</th><th>Band</th><th>Quality</th><th>Updated</th>
+                  </tr>
+                </thead>
+                <tbody>{''.join(lead_rows)}</tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class=\"aside\">
+        <h3>Smart filtering and scoring</h3>
+        <p>Filter by niche, band, or search term. Run scoring workflows to prioritize follow-up with clear lead bands.</p>
+      </aside>
+    </div>
+
+    <div class=\"section-grid\">
+      <section class=\"section\">
+        <h4>Recent runs</h4>
+        <p>Track discovery execution with detailed metrics and error counts.</p>
+        <div class=\"detail-card\">
+          <div class=\"table-wrap\">
+            <table>
+              <thead>
+                <tr>
+                  <th>Started</th><th>Niche</th><th>Query</th><th>Discovered</th><th>Processed</th><th>Inserted</th><th>Updated</th><th>Errors</th>
+                </tr>
+              </thead>
+              <tbody>{''.join(run_rows)}</tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class=\"section\">
+        <h4>Lead details</h4>
+        <p>Quickly review lead signals, score, and latest update timestamp.</p>
+        <div class=\"detail-card\">
+          {_lead_detail(selected)}
+        </div>
+      </section>
+    </div>
+
+    <div class=\"cta\">
       <div>
-        <h1>Lead Agent Dashboard</h1>
-        <div class=\"muted\">{_esc(db_path)} · refreshed {now}</div>
+        <h5>Automated discovery</h5>
+        <p>Fetch new leads from multiple niches and keep your pipeline current with one click.</p>
       </div>
-      <div class=\"tiny\">No delete actions in UI.</div>
-    </div>
-
-    <div class=\"cards\">
-      <div class=\"card\"><div class=\"k\">{stats['total']}</div><div class=\"l\">Total</div></div>
-      <div class=\"card\"><div class=\"k\">{stats['hot']}</div><div class=\"l\">Hot</div></div>
-      <div class=\"card\"><div class=\"k\">{stats['warm']}</div><div class=\"l\">Warm</div></div>
-      <div class=\"card\"><div class=\"k\">{stats['cold']}</div><div class=\"l\">Cold</div></div>
-      <div class=\"card\"><div class=\"k\">{stats['unscored']}</div><div class=\"l\">Unscored</div></div>
-    </div>
-
-    {message_block}
-
-    <div class=\"grid\">
-      <div class=\"panel\">
-        <form method=\"get\" class=\"filters\">
-          <select name=\"niche\">{''.join(options_niche)}</select>
-          <select name=\"band\">{''.join(options_band)}</select>
-          <input name=\"q\" value=\"{_esc(search)}\" placeholder=\"Search name, website, email, phone\" />
-          <input name=\"limit\" type=\"number\" min=\"10\" max=\"500\" value=\"{limit}\" />
-          <button class=\"secondary\" type=\"submit\">Filter</button>
-        </form>
-      </div>
-      <div class=\"panel\">
-        <form method=\"post\" action=\"/action\" class=\"actions\">
-          <input type=\"hidden\" name=\"config\" value=\"{_esc(config_path)}\" />
-          <input type=\"hidden\" name=\"db\" value=\"{_esc(db_path)}\" />
-          <input type=\"hidden\" name=\"dotenv\" value=\"{_esc(dotenv_path)}\" />
-          <label><input type=\"checkbox\" name=\"use_model\" value=\"1\" /> Use model</label>
-          <button class=\"primary\" type=\"submit\" name=\"kind\" value=\"run\">Run Discovery</button>
-          <button class=\"secondary\" type=\"submit\" name=\"kind\" value=\"requalify\">Requalify Unscored</button>
-        </form>
-      </div>
-    </div>
-
-    <div class=\"panel\">
-      <div class=\"tiny\">Leads ({len(rows)} shown)</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th><th>Niche</th><th>Area</th><th>Website</th><th>Email</th><th>Phone</th>
-            <th>Score</th><th>Band</th><th>Quality</th><th>Updated</th>
-          </tr>
-        </thead>
-        <tbody>{''.join(lead_rows)}</tbody>
-      </table>
-    </div>
-
-    <div class=\"panel\">
-      <div class=\"tiny\">Recent Runs</div>
-      <table>
-        <thead>
-          <tr>
-            <th>Started</th><th>Niche</th><th>Query</th><th>Discovered</th><th>Processed</th><th>Inserted</th><th>Updated</th><th>Errors</th>
-          </tr>
-        </thead>
-        <tbody>{''.join(run_rows)}</tbody>
-      </table>
+      <form method=\"post\" action=\"/action\" class=\"actions\">
+        <input type=\"hidden\" name=\"config\" value=\"{_esc(config_path)}\" />
+        <input type=\"hidden\" name=\"db\" value=\"{_esc(db_path)}\" />
+        <input type=\"hidden\" name=\"dotenv\" value=\"{_esc(dotenv_path)}\" />
+        <input type=\"hidden\" name=\"return_q\" value=\"{_esc(query_base)}\" />
+        <button class=\"primary run\" type=\"submit\" name=\"kind\" value=\"run\">Run Discovery</button>
+      </form>
     </div>
   </div>
 </body>
@@ -344,6 +498,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except Exception:
             limit = 100
 
+        selected_id: int | None = None
+        try:
+            selected_id = int((qs.get("lead", [""])[0] or "").strip())
+        except Exception:
+            selected_id = None
+
         msg = (qs.get("msg", [""])[0] or "").strip()
         ok = (qs.get("ok", ["1"])[0] or "1") == "1"
 
@@ -355,6 +515,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             band=band,
             search=search,
             limit=limit,
+            selected_id=selected_id,
             message=msg,
             message_ok=ok,
         ).encode("utf-8")
@@ -379,6 +540,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         cfg = (form.get("config", [self.config_path])[0] or self.config_path).strip()
         dotenv = (form.get("dotenv", [self.dotenv_path])[0] or self.dotenv_path).strip()
         use_model = "use_model" in form
+        return_q = (form.get("return_q", [""])[0] or "").strip()
 
         cmd = [sys.executable, "-m", "lead_agent.cli", "--dotenv-path", dotenv]
 
@@ -391,18 +553,23 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if use_model:
                 cmd.append("--use-model")
         else:
-            self._redirect("Unknown action.", ok=False)
+            self._redirect("Unknown action.", ok=False, return_q=return_q)
             return
 
         ok, output = _run_action(cmd)
         compact = output[:4000]
-        self._redirect(compact, ok=ok)
+        self._redirect(compact, ok=ok, return_q=return_q)
 
     def log_message(self, format: str, *args: Any) -> None:
         return
 
-    def _redirect(self, message: str, ok: bool) -> None:
-        q = urllib.parse.urlencode({"msg": message, "ok": "1" if ok else "0"})
+    def _redirect(self, message: str, ok: bool, return_q: str = "") -> None:
+        params: dict[str, str] = {"msg": message, "ok": "1" if ok else "0"}
+        if return_q:
+            for key, vals in urllib.parse.parse_qs(return_q).items():
+                if vals:
+                    params[key] = vals[0]
+        q = urllib.parse.urlencode(params)
         self.send_response(303)
         self.send_header("Location", f"/?{q}")
         self.end_headers()
